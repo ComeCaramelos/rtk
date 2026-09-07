@@ -1,0 +1,29 @@
+root = true
+
+# Mirrors .gitattributes: everything checks out and saves as LF,
+# so editors never rewrite line endings and git status stays clean.
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Hook payloads and fixtures are installed byte-for-byte; keep them as-is.
+[tests/fixtures/**]
+end_of_line = auto
+insert_final_newline = false
+trim_trailing_whitespace = false
+
+[*.ts]
+indent_size = 2
+
+[*.json]
+indent_size = 2
+
+[*.{yml,yaml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false

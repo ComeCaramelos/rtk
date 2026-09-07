@@ -76,3 +76,9 @@ pub const VIBE_PROMPTS_SUBDIR: &str = "prompts";
 pub const VIBE_PROMPT_FILE: &str = "rtk.md";
 pub const VIBE_HOOK_NAME: &str = "rtk-rewrite";
 pub const VIBE_BASH_MATCH: &str = "bash";
+
+/// DeepSeek Harness home directory, joined onto the resolved home directory.
+/// DSH resolves its home as `$DSH_HOME || ~/.dsh`.
+pub const DSH_DIR: &str = ".dsh";
+/// Environment variable that overrides the DeepSeek Harness home directory.
+pub const DSH_HOME_ENV: &str = "DSH_HOME";

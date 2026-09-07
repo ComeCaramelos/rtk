@@ -16,12 +16,12 @@ use crate::hooks::constants::{
 use super::constants::{
     BEFORE_TOOL_KEY, CLAUDE_DIR, CLAUDE_HOOK_COMMAND, CODEX_DIR, CURSOR_HOOK_COMMAND, DROID_DIR,
     DROID_EXECUTE_MATCHER, DROID_HOME_ENV, DROID_HOOKS_FILE, DROID_HOOKS_SUBDIR,
-    DROID_HOOK_COMMAND, DROID_SETTINGS_FILE, GEMINI_HOOK_FILE, HERMES_DIR, HERMES_PLUGINS_SUBDIR,
-    HERMES_PLUGIN_INIT_FILE, HERMES_PLUGIN_MANIFEST_FILE, HERMES_PLUGIN_NAME, HOOKS_JSON,
-    HOOKS_SUBDIR, OMP_DIR, OMP_LOCAL_DIR, PI_AGENT_STATE_FILE, PI_CODING_AGENT_DIR_ENV, PI_DIR,
-    PI_EXTENSIONS_SUBDIR, PI_LOCAL_DIR, PI_PLUGIN_FILE, PRE_TOOL_USE_KEY, REWRITE_HOOK_FILE,
-    SETTINGS_JSON, VIBE_BASH_MATCH, VIBE_DIR, VIBE_HOOKS_FILE, VIBE_HOOK_COMMAND, VIBE_HOOK_NAME,
-    VIBE_PROMPTS_SUBDIR, VIBE_PROMPT_FILE,
+    DROID_HOOK_COMMAND, DROID_SETTINGS_FILE, DSH_DIR, DSH_HOME_ENV, GEMINI_HOOK_FILE, HERMES_DIR,
+    HERMES_PLUGINS_SUBDIR, HERMES_PLUGIN_INIT_FILE, HERMES_PLUGIN_MANIFEST_FILE,
+    HERMES_PLUGIN_NAME, HOOKS_JSON, HOOKS_SUBDIR, OMP_DIR, OMP_LOCAL_DIR, PI_AGENT_STATE_FILE,
+    PI_CODING_AGENT_DIR_ENV, PI_DIR, PI_EXTENSIONS_SUBDIR, PI_LOCAL_DIR, PI_PLUGIN_FILE,
+    PRE_TOOL_USE_KEY, REWRITE_HOOK_FILE, SETTINGS_JSON, VIBE_BASH_MATCH, VIBE_DIR, VIBE_HOOKS_FILE,
+    VIBE_HOOK_COMMAND, VIBE_HOOK_NAME, VIBE_PROMPTS_SUBDIR, VIBE_PROMPT_FILE,
 };
 use super::integrity;
 use super::is_claude_hook_command;
@@ -2206,6 +2206,148 @@ fn run_kimi_mode_at(base_dir: &Path, ctx: InitContext) -> Result<()> {
     }
 
     Ok(())
+}
+
+// ─── DeepSeek Harness support ─────────────────────────────────
+//
+// DeepSeek Harness (dsh) loads workspace instructions from
+// `$DSH_HOME/AGENTS.md` (default `~/.dsh/AGENTS.md`) and, in each directory
+// from the project root to the session working directory, from `AGENTS.md`
+// and `CLAUDE.md` (plus their `.local` overlays). Its `tools/pre-execute`
+// waterfall only returns allow/deny/ask decisions — input rewriting is
+// explicitly excluded because arguments are already logged and presented —
+// so transparent command rewriting is not possible. We therefore inject an
+// RTK instructions block into AGENTS.md, the same mechanism as Kimi.
+
+pub fn run_dsh_mode(global: bool, ctx: InitContext) -> Result<()> {
+    let agents_md_path = if global {
+        resolve_dsh_home()?.join(AGENTS_MD)
+    } else {
+        std::env::current_dir()
+            .context("Failed to determine current directory")?
+            .join(AGENTS_MD)
+    };
+    run_dsh_mode_at(&agents_md_path, ctx)
+}
+
+fn run_dsh_mode_at(agents_md_path: &Path, ctx: InitContext) -> Result<()> {
+    if !ctx.dry_run {
+        if let Some(parent) = agents_md_path.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create DSH home directory: {}", parent.display())
+            })?;
+        }
+    }
+
+    write_rtk_block(
+        agents_md_path,
+        RTK_INSTRUCTIONS,
+        "RTK instructions",
+        "rtk init --agent dsh",
+        ctx,
+    )?;
+
+    if ctx.dry_run {
+        print_dry_run_footer();
+    } else {
+        println!("\nRTK configured for DeepSeek Harness.\n");
+        println!("  AGENTS.md: {}", agents_md_path.display());
+        println!("  DSH will now use rtk commands for token savings.");
+        println!("  Test with: git status\n");
+    }
+
+    Ok(())
+}
+
+/// Resolve the DeepSeek Harness home directory, honouring `$DSH_HOME`.
+///
+/// DSH resolves its home as `$DSH_HOME || ~/.dsh`.
+fn resolve_dsh_home() -> Result<PathBuf> {
+    resolve_dsh_home_from_env(dirs::home_dir(), std::env::var_os(DSH_HOME_ENV))
+}
+
+fn resolve_dsh_home_from_env(
+    home_dir: Option<PathBuf>,
+    dsh_home: Option<OsString>,
+) -> Result<PathBuf> {
+    if let Some(path) = dsh_home.filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(path));
+    }
+
+    home_dir
+        .map(|home| home.join(DSH_DIR))
+        .context("Cannot determine DSH home directory. Set $DSH_HOME or $HOME.")
+}
+
+pub fn uninstall_dsh(global: bool, ctx: InitContext) -> Result<()> {
+    let InitContext { dry_run, .. } = ctx;
+    let agents_md_path = if global {
+        resolve_dsh_home()?.join(AGENTS_MD)
+    } else {
+        PathBuf::from(AGENTS_MD)
+    };
+    let removed = uninstall_dsh_at(&agents_md_path, ctx)?;
+
+    if removed.is_empty() {
+        println!("RTK DeepSeek Harness support was not installed (nothing to remove)");
+    } else {
+        let header = if dry_run {
+            "[dry-run] would uninstall RTK for DeepSeek Harness:"
+        } else {
+            "RTK uninstalled for DeepSeek Harness:"
+        };
+        println!("{}", header);
+        for item in removed {
+            println!("  - {}", item);
+        }
+    }
+
+    if dry_run {
+        print_dry_run_footer();
+    }
+    Ok(())
+}
+
+fn uninstall_dsh_at(agents_md_path: &Path, ctx: InitContext) -> Result<Vec<String>> {
+    let InitContext {
+        verbose, dry_run, ..
+    } = ctx;
+    let mut removed = Vec::new();
+
+    if agents_md_path.exists() {
+        let content = fs::read_to_string(agents_md_path)
+            .with_context(|| format!("Failed to read AGENTS.md: {}", agents_md_path.display()))?;
+
+        if content.contains(RTK_BLOCK_START) {
+            let (cleaned, did_remove) = remove_rtk_block(&content);
+            if did_remove {
+                let remaining = cleaned.trim_end();
+                if dry_run {
+                    println!(
+                        "[dry-run] would remove RTK block from {}",
+                        agents_md_path.display()
+                    );
+                } else if remaining.is_empty() {
+                    fs::remove_file(agents_md_path).with_context(|| {
+                        format!("Failed to remove AGENTS.md: {}", agents_md_path.display())
+                    })?;
+                } else {
+                    atomic_write(agents_md_path, remaining).with_context(|| {
+                        format!("Failed to write AGENTS.md: {}", agents_md_path.display())
+                    })?;
+                }
+                if verbose > 0 {
+                    eprintln!("Removed RTK block: {}", agents_md_path.display());
+                }
+                removed.push(format!(
+                    "AGENTS.md: removed rtk-instructions block ({})",
+                    agents_md_path.display()
+                ));
+            }
+        }
+    }
+
+    Ok(removed)
 }
 
 fn uninstall_hermes_at(hermes_home: &Path, ctx: InitContext) -> Result<Vec<String>> {
@@ -4857,12 +4999,16 @@ fn remove_cursor_hook_from_json(root: &mut serde_json::Value) -> bool {
 }
 
 /// Show current rtk configuration
-pub fn show_config(codex: bool, omp: bool) -> Result<()> {
+pub fn show_config(codex: bool, omp: bool, dsh: bool) -> Result<()> {
     if omp {
         return show_omp_config();
     }
     if codex {
         return show_codex_config();
+    }
+
+    if dsh {
+        return show_dsh_config();
     }
 
     show_claude_config()
@@ -4885,6 +5031,25 @@ fn show_omp_config() -> Result<()> {
     );
     println!("  rtk init --agent omp --uninstall     # Remove project OMP RTK extension");
     println!("  rtk init -g --agent omp --uninstall  # Remove global OMP RTK extension");
+
+    Ok(())
+}
+
+fn show_dsh_config() -> Result<()> {
+    let dsh_home = resolve_dsh_home()?;
+    let global_agents_md = dsh_home.join(AGENTS_MD);
+    let local_agents_md = PathBuf::from(AGENTS_MD);
+
+    println!("rtk Configuration (DeepSeek Harness):\n");
+
+    show_dsh_block_status("Global", &global_agents_md)?;
+    show_dsh_block_status("Local", &local_agents_md)?;
+
+    println!("\nUsage:");
+    println!("  rtk init --agent dsh                # Configure local AGENTS.md");
+    println!("  rtk init -g --agent dsh             # Configure $DSH_HOME/AGENTS.md (or ~/.dsh/AGENTS.md)");
+    println!("  rtk init --agent dsh --uninstall    # Remove local RTK block");
+    println!("  rtk init -g --agent dsh --uninstall # Remove global RTK block");
 
     Ok(())
 }
@@ -4921,6 +5086,32 @@ fn print_omp_extension_status(label: &str, path: &Path) -> Result<()> {
         }
     } else {
         println!("  {}: {} (not installed)", label, path.display());
+    }
+    Ok(())
+}
+
+fn show_dsh_block_status(label: &str, path: &Path) -> Result<()> {
+    if path.exists() {
+        let content = fs::read_to_string(path)?;
+        if let Some(start) = content.find(RTK_BLOCK_START) {
+            if let Some(relative_end) = content[start..].find(RTK_BLOCK_END) {
+                let end = start + relative_end + RTK_BLOCK_END.len();
+                let current_block = content[start..end].trim();
+                if current_block == RTK_INSTRUCTIONS.trim() {
+                    println!("[ok] {label} AGENTS.md: RTK instructions block up to date");
+                } else {
+                    println!(
+                        "[!!] {label} AGENTS.md: RTK instructions block outdated (re-run rtk init --agent dsh)"
+                    );
+                }
+            } else {
+                println!("[!!] {label} AGENTS.md: incomplete RTK block (fix manually)");
+            }
+        } else {
+            println!("[--] {label} AGENTS.md: exists but rtk not configured");
+        }
+    } else {
+        println!("[--] {label} AGENTS.md: not found");
     }
     Ok(())
 }
@@ -6684,6 +6875,119 @@ mod tests {
         run_kimi_mode_at(temp.path(), InitContext::default()).unwrap();
         let second = fs::read_to_string(&path).unwrap();
         assert_eq!(first, second, "Idempotent: content should not change");
+    }
+
+    #[test]
+    fn test_dsh_mode_writes_agents_md() {
+        let temp = TempDir::new().unwrap();
+        let agents_md = temp.path().join(AGENTS_MD);
+        run_dsh_mode_at(&agents_md, InitContext::default()).unwrap();
+
+        // DSH reads AGENTS.md per directory (and $DSH_HOME/AGENTS.md globally).
+        assert!(agents_md.exists(), "AGENTS.md should be created");
+        let content = fs::read_to_string(&agents_md).unwrap();
+        assert!(
+            content.contains(RTK_BLOCK_START),
+            "AGENTS.md should contain the RTK instructions block"
+        );
+    }
+
+    #[test]
+    fn test_dsh_mode_is_idempotent() {
+        let temp = TempDir::new().unwrap();
+        let agents_md = temp.path().join(AGENTS_MD);
+        run_dsh_mode_at(&agents_md, InitContext::default()).unwrap();
+
+        let first = fs::read_to_string(&agents_md).unwrap();
+
+        // Second run is an upsert no-op.
+        run_dsh_mode_at(&agents_md, InitContext::default()).unwrap();
+        let second = fs::read_to_string(&agents_md).unwrap();
+        assert_eq!(first, second, "Idempotent: content should not change");
+    }
+
+    #[test]
+    fn test_dsh_mode_preserves_existing_content() {
+        let temp = TempDir::new().unwrap();
+        let agents_md = temp.path().join(AGENTS_MD);
+        fs::write(&agents_md, "# My project\n\nCustom instructions here.\n").unwrap();
+
+        run_dsh_mode_at(&agents_md, InitContext::default()).unwrap();
+
+        let content = fs::read_to_string(&agents_md).unwrap();
+        assert!(
+            content.starts_with("# My project"),
+            "existing content must be preserved"
+        );
+        assert!(content.contains("Custom instructions here."));
+        assert!(content.contains(RTK_BLOCK_START));
+    }
+
+    #[test]
+    fn test_dsh_uninstall_removes_block_and_keeps_content() {
+        let temp = TempDir::new().unwrap();
+        let agents_md = temp.path().join(AGENTS_MD);
+        fs::write(&agents_md, "# My project\n\nKeep this.\n").unwrap();
+        run_dsh_mode_at(&agents_md, InitContext::default()).unwrap();
+
+        let removed = uninstall_dsh_at(&agents_md, InitContext::default()).unwrap();
+        assert_eq!(removed.len(), 1, "one artifact should be reported removed");
+
+        let content = fs::read_to_string(&agents_md).unwrap();
+        assert!(!content.contains(RTK_BLOCK_START));
+        assert!(
+            content.contains("Keep this."),
+            "non-RTK content must survive uninstall"
+        );
+    }
+
+    #[test]
+    fn test_dsh_uninstall_removes_file_when_block_was_only_content() {
+        let temp = TempDir::new().unwrap();
+        let agents_md = temp.path().join(AGENTS_MD);
+        run_dsh_mode_at(&agents_md, InitContext::default()).unwrap();
+
+        let removed = uninstall_dsh_at(&agents_md, InitContext::default()).unwrap();
+        assert_eq!(removed.len(), 1);
+        assert!(
+            !agents_md.exists(),
+            "AGENTS.md holding only the RTK block should be deleted"
+        );
+    }
+
+    #[test]
+    fn test_dsh_uninstall_noop_when_absent() {
+        let temp = TempDir::new().unwrap();
+        let agents_md = temp.path().join(AGENTS_MD);
+
+        let removed = uninstall_dsh_at(&agents_md, InitContext::default()).unwrap();
+        assert!(
+            removed.is_empty(),
+            "no artifacts to report when file is absent"
+        );
+        assert!(!agents_md.exists());
+    }
+
+    #[test]
+    fn test_resolve_dsh_home_env_resolution() {
+        let home = PathBuf::from("/home/user");
+
+        let overridden =
+            resolve_dsh_home_from_env(Some(home.clone()), Some("/custom/dsh-home".into())).unwrap();
+        assert_eq!(overridden, PathBuf::from("/custom/dsh-home"));
+
+        let default = resolve_dsh_home_from_env(Some(home.clone()), None).unwrap();
+        assert_eq!(default, home.join(DSH_DIR));
+
+        let empty_env = resolve_dsh_home_from_env(Some(home.clone()), Some("".into())).unwrap();
+        assert_eq!(
+            empty_env,
+            home.join(DSH_DIR),
+            "empty $DSH_HOME falls back to ~/.dsh"
+        );
+
+        let no_home = resolve_dsh_home_from_env(None, None);
+        assert!(no_home.is_err(), "must fail without $DSH_HOME or $HOME");
     }
 
     #[test]
