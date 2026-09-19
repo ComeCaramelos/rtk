@@ -193,7 +193,9 @@ impl AgentPath {
         match agent {
             // `copilot` reads Claude Code's settings rather than a Copilot file
             // (see `hook_cmd`'s `vscode_response` and `copilot_cli_response`).
-            "antigravity" | "cline" | "kilocode" | "kimi" | "windsurf" => Some(Self::RulesOnly),
+            "antigravity" | "cline" | "dsh" | "kilocode" | "kimi" | "windsurf" => {
+                Some(Self::RulesOnly)
+            }
             "claude" | "copilot" => Some(Self::InProcess(Host::Claude)),
             "codex" => Some(Self::InProcess(Host::Codex)),
             "trae" => Some(Self::InProcess(Host::Trae)),
@@ -215,6 +217,7 @@ impl AgentPath {
         "copilot",
         "cursor",
         "droid",
+        "dsh",
         "gemini",
         "hermes",
         "kilocode",

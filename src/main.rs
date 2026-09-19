@@ -53,6 +53,8 @@ pub enum AgentTarget {
     Antigravity,
     /// Kimi AI
     Kimi,
+    /// DeepSeek Harness
+    Dsh,
     /// Pi coding agent
     Pi,
     /// Hermes CLI
@@ -1910,6 +1912,8 @@ where
         hooks::init::uninstall_droid(global, ctx)
     } else if agent == Some(AgentTarget::Vibe) {
         hooks::init::uninstall_vibe(ctx)
+    } else if agent == Some(AgentTarget::Dsh) {
+        hooks::init::uninstall_dsh(global, ctx)
     } else {
         let cursor = agent == Some(AgentTarget::Cursor);
         let pi = agent == Some(AgentTarget::Pi);
@@ -2409,7 +2413,11 @@ fn run_cli() -> Result<i32> {
                 hooks::init::PatchMode::Ask
             };
             if show {
-                hooks::init::show_config(codex, agent == Some(AgentTarget::Omp))?;
+                hooks::init::show_config(
+                    codex,
+                    agent == Some(AgentTarget::Omp),
+                    agent == Some(AgentTarget::Dsh),
+                )?;
             } else if uninstall && copilot {
                 if global {
                     hooks::init::uninstall_copilot_global(ctx)?;
@@ -2458,6 +2466,8 @@ fn run_cli() -> Result<i32> {
                     anyhow::bail!("Kimi AI is project-scoped. Use: rtk init --agent kimi");
                 }
                 hooks::init::run_kimi_mode(ctx)?;
+            } else if agent == Some(AgentTarget::Dsh) {
+                hooks::init::run_dsh_mode(global, ctx)?;
             } else if agent == Some(AgentTarget::Hermes) {
                 hooks::init::run_hermes_mode(ctx)?;
             } else if agent == Some(AgentTarget::Droid) {

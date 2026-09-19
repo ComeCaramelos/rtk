@@ -481,6 +481,7 @@ mod hook_check {
             "kilocode",
             "antigravity",
             "kimi",
+            "dsh",
         ] {
             let (code, stdout, _) = sb.run(&["hook", "check", "--agent", agent, "git status"]);
             assert_eq!(

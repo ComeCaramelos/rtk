@@ -324,11 +324,11 @@ fn git_branch_dash_prefixed_name_after_double_dash_attempts_creation_not_a_silen
 
 #[test]
 fn git_log_malformed_digit_run_propagates_real_git_error() {
-    // "-5x" isn't a valid git log limit; real git rejects it outright ("fatal: '5x': not an
-    // integer", verified against git 2.51). run_log's internal limit-parsing for this
-    // malformed input differs before/after arg_tokenizer (5 vs the old fallback of 10), but
-    // that's never observable here: run_log bails out on the real git failure before ever
-    // reaching the formatting code that would use it.
+    // "-5x" isn't a valid git log limit; real git rejects it outright. The wording varies by
+    // version: git 2.43 says "not a non-negative integer", git 2.51+ says "not an integer".
+    // run_log's internal limit-parsing for this malformed input differs before/after
+    // arg_tokenizer (5 vs the old fallback of 10), but that's never observable here: run_log
+    // bails out on the real git failure before ever reaching the formatting code.
     let dir = init_git_repo();
 
     let raw = Command::new("git")
@@ -342,7 +342,7 @@ fn git_log_malformed_digit_run_propagates_real_git_error() {
 
     assert_eq!(rtk_code, raw.status.code());
     assert!(
-        rtk_stderr.contains("not an integer"),
+        rtk_stderr.contains("'5x'") && rtk_stderr.contains("integer"),
         "rtk should surface git's own error verbatim: {rtk_stderr:?}"
     );
 }

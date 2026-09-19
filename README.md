@@ -131,6 +131,8 @@ rtk init --agent cline          # Cline / Roo Code
 rtk init --agent kilocode       # Kilo Code
 rtk init --agent antigravity    # Google Antigravity
 rtk init --agent kimi           # Kimi AI
+rtk init -g --agent dsh         # DeepSeek Harness ($DSH_HOME/AGENTS.md)
+rtk init --agent dsh            # DeepSeek Harness (project AGENTS.md)
 rtk init -g --agent pi          # Pi
 rtk init --agent omp            # Oh My Pi (OMP)
 rtk init --agent hermes         # Hermes
@@ -436,6 +438,7 @@ RTK supports 18 AI coding tools. Each integration rewrites shell commands to `rt
 | **Kilo Code** | `rtk init --agent kilocode` | .kilocode/rules/rtk-rules.md (project-scoped) |
 | **Google Antigravity** | `rtk init --agent antigravity` | .agents/rules/antigravity-rtk-rules.md (project-scoped) |
 | **Kimi AI** | `rtk init --agent kimi` | AGENTS.md (project-scoped) |
+| **DeepSeek Harness** | `rtk init --agent dsh` (project) / `rtk init -g --agent dsh` (`$DSH_HOME/AGENTS.md`) | AGENTS.md instructions block (no hook) |
 | **Factory Droid** | `rtk init -g --agent droid` (or per-project) | PreToolUse hook in `~/.factory/hooks.json` (matcher `Execute`) |
 | **Trae** | `rtk init --agent trae` | Native `PreToolUse` hook in `.trae/hooks.json` (`RunCommand`) |
 | **Trae (global)** | `rtk init -g --agent trae` | `~/.trae/hooks.json`, plus `~/.trae-cn/hooks.json` when that directory exists |

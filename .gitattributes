@@ -1,3 +1,7 @@
+# Force LF everywhere: repo stores LF, every platform checks out LF.
+# Prevents branch switches and Windows/Linux editors from leaving files dirty.
+* text=auto eol=lf
+
 # Fixtures are byte-exact filter inputs; eol conversion must never touch them.
 # Without this, Windows runners (core.autocrlf=true) check fixtures out with
 # CRLF, and tests that synthesize CRLF input from them produce \r\r\n.
